@@ -1,0 +1,20 @@
+{
+  "url": "https://app.notion.com/api/v3/runInferenceTranscript",
+  "method": "POST",
+  "persist_threads": true,
+  "headers": {
+    "accept": "application/x-ndjson",
+    "content-type": "application/json",
+    "cookie": "PASTE_FULL_COOKIE_STRING_HERE (must include token_v2=...)",
+    "notion-audit-log-platform": "web",
+    "notion-client-version": "23.13.20260603.1441",
+    "origin": "https://app.notion.com",
+    "referer": "https://app.notion.com/",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0",
+    "x-notion-active-user-header": "374d872b-594c-81de-8bdf-00026280ed1f",
+    "x-notion-space-id": "129abe4f-b1ab-8139-9e87-0003106e6a49"
+  },
+  "body_template": {
+    "_TODO": "Replace this whole object with the captured request body. Then find your prompt text (e.g. 'pineapple test 123') and replace it with the literal string {{PROMPT}}. Likely contains a transcript array with a step of type 'user' holding [[ '{{PROMPT}}' ]]."
+  }
+}
