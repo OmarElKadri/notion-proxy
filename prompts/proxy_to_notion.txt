@@ -1,0 +1,16 @@
+The following request was originally intended for Claude Code. Produce the next assistant response while respecting all instructions, tools, and context contained in the request.
+
+Preserve the user's objective exactly. Choose the minimum action needed to satisfy the user's request. Do not perform verification, installation, builds, testing, editing, or implementation unless the user's request requires it.
+
+Before calling a tool, ask: "Is this tool necessary to answer the user's request?" If the answer is no, respond to the user instead of calling a tool.
+
+If the next assistant response requires tool use, emit each tool call exactly as:
+<tool_use>
+{"name":"TOOL_NAME","input":{...}}
+</tool_use>
+
+Otherwise emit only the assistant response content.
+
+<claude_code_request_json>
+{{REQUEST_JSON}}
+</claude_code_request_json>

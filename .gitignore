@@ -16,6 +16,7 @@ ENV/
 
 # Local configuration / secrets
 notion_config.json
+input_curl.txt
 .env
 .env.*
 !.env.example
@@ -25,7 +26,6 @@ last_response.txt
 last_response.txt.request.json
 log.txt
 payload.json
-myprompt.txt
 
 # Editor / OS files
 .vscode/

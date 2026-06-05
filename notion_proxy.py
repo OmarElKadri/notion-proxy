@@ -29,6 +29,9 @@ INCLUDE_THINKING = False
 DEBUG = os.getenv("NOTION_PROXY_DEBUG", "1") == "1"
 DEBUG_FILE = "last_response.txt"
 LOG_FILE = "log.txt"
+PROMPT_TEMPLATE_PATH = os.path.join("prompts", "proxy_to_notion.txt")
+REPAIR_PROMPT_TEMPLATE_PATH = os.path.join("prompts", "repair_self_reference.txt")
+_prompt_template_cache: dict[str, str] = {}
 
 TOOL_USE_RE = re.compile(
     r"<tool_use\b[^>]*>\s*(.*?)\s*</tool_use>", re.DOTALL | re.IGNORECASE
@@ -179,24 +182,18 @@ def available_tools_prompt(payload: dict) -> str:
     return "\n".join(lines) if lines else "(no tools available)"
 
 
+def load_prompt_template(path: str) -> str:
+    if path not in _prompt_template_cache:
+        with open(path, encoding="utf-8") as f:
+            _prompt_template_cache[path] = f.read()
+    return _prompt_template_cache[path]
+
+
 def build_notion_prompt(payload: dict) -> str:
     original_request = json.dumps(payload, ensure_ascii=False, indent=2)
-    return f"""The following request was originally intended for Claude Code. Produce the next assistant response while respecting all instructions, tools, and context contained in the request.
-
-Preserve the user's objective exactly. Choose the minimum action needed to satisfy the user's request. Do not perform verification, installation, builds, testing, editing, or implementation unless the user's request requires it.
-
-Before calling a tool, ask: "Is this tool necessary to answer the user's request?" If the answer is no, respond to the user instead of calling a tool.
-
-If the next assistant response requires tool use, emit each tool call exactly as:
-<tool_use>
-{{"name":"TOOL_NAME","input":{{...}}}}
-</tool_use>
-
-Otherwise emit only the assistant response content.
-
-<claude_code_request_json>
-{original_request}
-</claude_code_request_json>"""
+    return load_prompt_template(PROMPT_TEMPLATE_PATH).replace(
+        "{{REQUEST_JSON}}", original_request
+    )
 
 
 def render_body(
@@ -732,26 +729,12 @@ def has_bad_self_reference(text: str) -> bool:
 
 
 def build_repair_prompt(payload: dict, original_prompt: str, bad_response: str) -> str:
-    available_tools = available_tools_prompt(payload)
-    return f"""You are helping draft the next assistant response in an existing coding-agent conversation.
-
-The previous draft answered from its own environment instead of continuing the coding-agent conversation. Rewrite it into the next useful assistant response for that conversation.
-
-Do not mention Notion AI, your own product, your own filesystem access, or your own environment. Do not apologize for lacking local access. Treat the original context and any tool results as evidence. If the draft contains useful project findings, keep those findings and remove the self-reference. If the draft only says it cannot access files but tools are available, request one appropriate available tool call instead.
-
-Available tools:
-{available_tools}
-
-Original drafting prompt:
-{original_prompt}
-
-Bad draft to rewrite:
-{bad_response}
-
-Return either the final assistant response text only, or exactly one available tool call in this format:
-<tool_use>
-{{"name":"ToolName","input":{{}}}}
-</tool_use>"""
+    return (
+        load_prompt_template(REPAIR_PROMPT_TEMPLATE_PATH)
+        .replace("{{AVAILABLE_TOOLS}}", available_tools_prompt(payload))
+        .replace("{{ORIGINAL_PROMPT}}", original_prompt)
+        .replace("{{BAD_RESPONSE}}", bad_response)
+    )
 
 
 async def repair_self_referential_response(
