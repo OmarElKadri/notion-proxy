@@ -2,6 +2,12 @@
 
 A local proxy that exposes Notion AI as an [Anthropic Messages API](https://docs.anthropic.com/en/api/messages) endpoint. Point Claude Code (or any Anthropic-compatible client) at `http://127.0.0.1:8787` and your prompts are forwarded to Notion's `runInferenceTranscript` workflow.
 
+## Disclaimer
+
+**This repository is for educational purposes only.**
+
+It exists to demonstrate how HTTP proxying, API adaptation, and prompt templating work. You are responsible for complying with [Notion's Terms of Service](https://www.notion.com/terms) and any applicable laws in your jurisdiction. The authors do not encourage misuse, credential sharing, or circumventing service limits. Use at your own risk.
+
 > ## ⚠️ IMPORTANT — Pick the right Notion AI model
 >
 > | Backend | Internal codename | Recommendation |
@@ -132,3 +138,22 @@ Notion session cookies expire. When requests start failing with auth errors:
 - Never commit `input_curl.txt` or `notion_config.json` — both contain session tokens.
 - The proxy binds to `127.0.0.1` by default; do not expose it to the public internet without additional auth.
 - Debug logging (`last_response.txt`, `log.txt`) may contain prompt content; both are gitignored.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for branch workflow, commit message conventions, and pull request guidelines.
+
+Quick flow:
+
+1. Branch from `main`: `git checkout -b feat/your-change`
+2. Commit with a clear message: `feat: describe what changed`
+3. Push and open a PR against `main`
+4. Confirm no secrets are in the diff
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+---
+
+**Made By OTYAK**
