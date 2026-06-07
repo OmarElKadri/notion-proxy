@@ -73,6 +73,82 @@ def is_tool_result_turn(payload: dict) -> bool:
     return bool(tool_result_texts(payload))
 
 
+def _tool_names_by_id(payload: dict) -> dict[str, str]:
+    """Map each assistant tool_use id to its tool name across the transcript."""
+    names: dict[str, str] = {}
+    for message in payload.get("messages", []) or []:
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            tid, name = block.get("id"), block.get("name")
+            if isinstance(tid, str) and isinstance(name, str):
+                names[tid] = name
+    return names
+
+
+def recent_tool_errors(payload: dict) -> list[dict]:
+    """Errors from the *most recent* tool_result turn, paired with the tool name.
+
+    Claude Code resends the whole transcript every turn, so a failed call sits in
+    the history forever. We only surface the errors from the latest turn — if the
+    last message is a fresh human query (no tool_result blocks), there is nothing
+    to nudge about. Each entry is ``{"name": <tool>, "error": <text>}``.
+    """
+    names = _tool_names_by_id(payload)
+    for message in reversed(payload.get("messages", []) or []):
+        if not isinstance(message, dict) or message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            return []  # plain-text user turn -> a fresh query, not a tool round-trip
+        errors: list[dict] = []
+        saw_tool_result = False
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "tool_result":
+                continue
+            saw_tool_result = True
+            if not block.get("is_error"):
+                continue
+            errors.append(
+                {
+                    "name": names.get(block.get("tool_use_id"), "tool"),
+                    "error": _stringify_tool_result_content(block.get("content")),
+                }
+            )
+        # Stop at the latest user message regardless: only its errors are recent.
+        return errors if saw_tool_result else []
+    return []
+
+
+def build_error_nudge(errors: list[dict]) -> str:
+    """A focused banner telling Notion its last tool call(s) failed.
+
+    Without this, the failed tool_result is buried in the forwarded request JSON
+    and Notion tends to re-emit the identical broken call turn after turn.
+    """
+    if not errors:
+        return ""
+    lines = [
+        "ATTENTION — your previous tool call(s) failed. Do NOT repeat an "
+        "identical call. Read each error, fix the underlying cause (wrong path, "
+        "missing file, bad arguments), or reply to the user explaining the "
+        "problem.",
+        "",
+        "Failed tool calls:",
+    ]
+    for err in errors:
+        detail = " ".join((err.get("error") or "").split())
+        if len(detail) > 500:
+            detail = detail[:500] + "…"
+        lines.append(f"- {err.get('name', 'tool')} failed: {detail}")
+    return "\n".join(lines)
+
+
 def available_tool_names(payload: dict) -> set[str]:
     names: set[str] = set()
     for tool in payload.get("tools", []) or []:

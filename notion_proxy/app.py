@@ -9,7 +9,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from .config import CONFIG_PATH, load_config
-from .logging_utils import dbg, log_event
+from .claude_io import latest_user_query
+from .logging_utils import dbg, log_event, log_turn
 from .notion.client import collect_notion_response
 from .prompt import build_notion_prompt
 from .repair import repair_self_referential_response
@@ -25,6 +26,7 @@ from .tools.validate import validate_tool_uses
 async def resolve_turn(payload: dict, cfg: dict, prompt: str) -> ResolvedTurn:
     """Run one Notion turn and resolve it to tools-or-text, shared by both routes."""
     full = await collect_notion_response(prompt, cfg)
+    notion_response = full
     full = await repair_self_referential_response(payload, cfg, prompt, full)
     log_event("NOTION TEXT AFTER REPAIR", full)
 
@@ -43,6 +45,20 @@ async def resolve_turn(payload: dict, cfg: dict, prompt: str) -> ResolvedTurn:
     if reject_reason:
         dbg(reject_reason)
         full = reject_reason
+
+    outcome = (
+        "REJECTED"
+        if reject_reason
+        else (f"{len(tools)} TOOL CALL(S)" if tools else "TEXT")
+    )
+    log_turn(
+        user_query=latest_user_query(payload),
+        notion_prompt=prompt,
+        notion_response=notion_response,
+        outcome=outcome,
+        tools=tools,
+        reject_reason=reject_reason,
+    )
 
     return ResolvedTurn(
         tools=tools,

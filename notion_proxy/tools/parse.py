@@ -20,6 +20,8 @@ from ..logging_utils import dbg
 TOOL_USE_RE = re.compile(
     r"<tool_use\b[^>]*>\s*(.*?)\s*</tool_use>", re.DOTALL | re.IGNORECASE
 )
+TOOL_USE_OPEN_RE = re.compile(r"<tool_use\b[^>]*>", re.IGNORECASE)
+TOOL_USE_CLOSE_RE = re.compile(r"</tool_use\s*>", re.IGNORECASE)
 CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 HEREDOC_OPEN_RE = re.compile(r"^<<<([A-Za-z_][A-Za-z0-9_]*)\s*$")
@@ -264,12 +266,48 @@ def _parse_tool_call(raw: str) -> dict | None:
     return {"name": call.group(1), "input": input_obj}
 
 
+def _iter_tool_use_blocks(text: str) -> list[str]:
+    """Yield the body of each *top-level* ``<tool_use>`` block.
+
+    A naive non-greedy regex pairs the first ``<tool_use>`` with the first
+    ``</tool_use>``, which breaks when a block carries a heredoc value that
+    itself contains the delimiter format — for example a tool call that edits
+    this very prompt template, whose body teaches the format with a literal
+    ``<tool_use>Edit ... </tool_use>`` example. The flat scan would then surface
+    that inner example as a second, standalone call and forward it for real.
+
+    Tracking open/close depth folds any nested block into its outer body, so
+    only genuine top-level calls are returned.
+    """
+    bodies: list[str] = []
+    depth = 0
+    body_start = 0
+    pos = 0
+    while pos < len(text):
+        open_match = TOOL_USE_OPEN_RE.search(text, pos)
+        close_match = TOOL_USE_CLOSE_RE.search(text, pos)
+        if close_match is None:
+            break
+        if open_match is not None and open_match.start() < close_match.start():
+            if depth == 0:
+                body_start = open_match.end()
+            depth += 1
+            pos = open_match.end()
+            continue
+        if depth > 0:
+            depth -= 1
+            if depth == 0:
+                bodies.append(text[body_start : close_match.start()])
+        pos = close_match.end()
+    return bodies
+
+
 def parse_tool_uses(text: str) -> list[dict]:
     """Extract all tool calls from <tool_use>...</tool_use> blocks."""
     normalized = _normalize_tool_response(text)
     tools: list[dict] = []
-    for match in TOOL_USE_RE.finditer(normalized):
-        tool = _parse_tool_call(match.group(1))
+    for body in _iter_tool_use_blocks(normalized):
+        tool = _parse_tool_call(body.strip())
         if tool:
             tools.append(tool)
     return tools

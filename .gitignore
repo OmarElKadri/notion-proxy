@@ -25,6 +25,7 @@ input_curl.txt
 last_response.txt
 last_response.txt.request.json
 log.txt
+turns.log
 payload.json
 
 # Editor / OS files

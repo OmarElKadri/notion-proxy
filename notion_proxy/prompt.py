@@ -9,6 +9,8 @@ import re
 import uuid
 from typing import Any
 
+from .claude_io import build_error_nudge, recent_tool_errors
+
 PROMPT_TEMPLATE_PATH = os.path.join("prompts", "proxy_to_notion.txt")
 REPAIR_PROMPT_TEMPLATE_PATH = os.path.join("prompts", "repair_self_reference.txt")
 
@@ -32,8 +34,12 @@ def load_prompt_template(path: str) -> str:
 
 def build_notion_prompt(payload: dict) -> str:
     original_request = json.dumps(payload, ensure_ascii=False, indent=2)
-    return load_prompt_template(PROMPT_TEMPLATE_PATH).replace(
-        "{{REQUEST_JSON}}", original_request
+    nudge = build_error_nudge(recent_tool_errors(payload))
+    nudge_block = f"{nudge}\n\n" if nudge else ""
+    return (
+        load_prompt_template(PROMPT_TEMPLATE_PATH)
+        .replace("{{ERROR_NUDGE}}", nudge_block)
+        .replace("{{REQUEST_JSON}}", original_request)
     )
 
 

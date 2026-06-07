@@ -113,3 +113,34 @@ def test_markup_without_parseable_body_yields_no_tools():
     # Markup present but body is not a valid tool call -> empty list. This is the
     # condition that drives the "Rejected malformed tool_use block" path.
     assert parse_tool_uses("<tool_use>\n???\n</tool_use>") == []
+
+
+def test_nested_tool_use_in_heredoc_is_not_a_separate_call():
+    # An outer call that edits the prompt template carries a heredoc whose value
+    # teaches the format with a literal inner <tool_use>Edit</tool_use> example.
+    # The inner block must fold into the outer body, not surface as its own call
+    # on the example's path (the D:\dev\project\main.py "File not found" loop).
+    block = (
+        "<tool_use>\n"
+        "Edit\n"
+        "file_path: D:\\dev\\notion-proxy\\prompts\\proxy_to_notion.txt\n"
+        "old_string: <<<OLD\n"
+        "old text\n"
+        "OLD\n"
+        "new_string: <<<NEW\n"
+        "Example:\n"
+        "<tool_use>\n"
+        "Edit\n"
+        "file_path: D:\\dev\\project\\main.py\n"
+        "old_string: foo\n"
+        "new_string: bar\n"
+        "</tool_use>\n"
+        "NEW\n"
+        "</tool_use>"
+    )
+    tools = parse_tool_uses(block)
+    assert len(tools) == 1
+    assert tools[0]["name"] == "Edit"
+    assert tools[0]["input"]["file_path"] == "D:\\dev\\notion-proxy\\prompts\\proxy_to_notion.txt"
+    # The echoed example path must never escape as a standalone call.
+    assert all(t["input"].get("file_path") != "D:\\dev\\project\\main.py" for t in tools)
