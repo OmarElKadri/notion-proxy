@@ -78,13 +78,13 @@ See `notion_config.example.json` for the expected shape if you need to inspect o
 ### 4. Run the proxy
 
 ```bash
-python3 notion_proxy.py
+python3 -m notion_proxy
 ```
 
 Defaults: `127.0.0.1:8787`. Override with `--host`, `--port`, or `--config`:
 
 ```bash
-python3 notion_proxy.py --port 8787 --config notion_config.json
+python3 -m notion_proxy --port 8787 --config notion_config.json
 ```
 
 Health check: `GET http://127.0.0.1:8787/health`
@@ -98,7 +98,16 @@ Prompt text lives in `prompts/` — edit these files to change proxy behavior wi
 | `prompts/proxy_to_notion.txt` | Every request | `{{REQUEST_JSON}}` — incoming Claude Code payload |
 | `prompts/repair_self_reference.txt` | Only when Notion replies as "Notion AI" instead of continuing the agent conversation | `{{AVAILABLE_TOOLS}}`, `{{ORIGINAL_PROMPT}}`, `{{BAD_RESPONSE}}` |
 
-The repair template is used by `repair_self_referential_response()` in `notion_proxy.py`: after each Notion response, if the text matches self-referential patterns (e.g. "I'm Notion AI", "I can't access local files") and isn't already a valid tool call, the proxy sends a second Notion request with the repair prompt to rewrite the answer.
+The repair template is used by `repair_self_referential_response()` in `notion_proxy/repair.py`: after each Notion response, if the text matches self-referential patterns (e.g. "I'm Notion AI", "I can't access local files") and isn't already a valid tool call, the proxy sends a second Notion request with the repair prompt to rewrite the answer.
+
+## Running the tests
+
+The pure logic (tool-call parsing, validation, stream parsing, body rendering, response building) is covered by a pytest suite:
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
 
 ## Using with Claude Code
 
@@ -124,9 +133,16 @@ Notion session cookies expire. When requests start failing with auth errors:
 
 | File | Purpose |
 |------|---------|
+| `notion_proxy/` | The proxy package (run with `python -m notion_proxy`) |
+| `notion_proxy/app.py` | FastAPI app factory and `/v1/messages` route |
+| `notion_proxy/prompt.py` | Prompt-template loading and request-body rendering |
+| `notion_proxy/tools/` | Tool-call parsing (`parse.py`) and validation (`validate.py`) |
+| `notion_proxy/notion/` | Notion HTTP client (`client.py`) and NDJSON stream parser (`stream.py`) |
+| `notion_proxy/responses.py` | Anthropic JSON + SSE response builders |
+| `notion_proxy/repair.py` | Self-referential-reply repair pass |
 | `generate_notion_config.py` | Converts a saved curl command into `notion_config.json` |
-| `notion_proxy.py` | FastAPI server — Anthropic API in, Notion AI out |
 | `extract_claude_context.py` | Helper to inspect Claude Code request payloads |
+| `tests/` | Pytest suite (`pytest`) |
 | `notion_config.example.json` | Annotated config template (safe to commit) |
 | `input_curl.txt` | Your captured curl (local only, gitignored) |
 | `notion_config.json` | Generated runtime config (local only, gitignored) |

@@ -13,13 +13,19 @@ Thanks for your interest in this project. This repository is provided for **educ
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # runtime deps + pytest
 ```
 
 Run the proxy locally:
 
 ```bash
-python3 notion_proxy.py
+python3 -m notion_proxy
+```
+
+Run the tests:
+
+```bash
+pytest
 ```
 
 ## Branch workflow
