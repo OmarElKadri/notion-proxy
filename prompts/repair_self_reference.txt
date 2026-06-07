@@ -13,7 +13,17 @@ Original drafting prompt:
 Bad draft to rewrite:
 {{BAD_RESPONSE}}
 
-Return either the final assistant response text only, or exactly one available tool call in this format:
+Return either the final assistant response text only, or exactly one tool call in the delimiter format. DO NOT emit JSON, do not escape anything. The first line inside <tool_use> is the tool name; each following line is `field: value`. For multi-line or code-bearing fields use a heredoc:
+
 <tool_use>
-{"name":"ToolName","input":{}}
+ToolName
+file_path: D:\dev\example.py
+old_string: <<<OLD
+literal old code, unescaped
+OLD
+new_string: <<<NEW
+literal new code, unescaped
+NEW
 </tool_use>
+
+Inline values (single line, no newlines) need no heredoc.

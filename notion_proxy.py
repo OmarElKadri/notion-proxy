@@ -37,6 +37,9 @@ TOOL_USE_RE = re.compile(
     r"<tool_use\b[^>]*>\s*(.*?)\s*</tool_use>", re.DOTALL | re.IGNORECASE
 )
 TOOL_USE_MARKUP_RE = re.compile(r"</?tool_use\b[^>]*>", re.IGNORECASE)
+HEREDOC_OPEN_RE = re.compile(r"^<<<([A-Za-z_][A-Za-z0-9_]*)\s*$")
+DELIMITED_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$")
+DELIMITED_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SYSTEM_REMINDER_RE = re.compile(
     r"<system-reminder>.*?</system-reminder>", re.DOTALL | re.IGNORECASE
 )
@@ -340,12 +343,24 @@ def _parse_loose_json_object(text: str) -> dict | None:
         _escape_invalid_json_backslashes(text),
         _escape_invalid_json_backslashes(_escape_windows_path_strings(text)),
     ]
-    for candidate in attempts:
+    for idx, candidate in enumerate(attempts):
         try:
             value = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        return value if isinstance(value, dict) else None
+            dbg(f"_parse_loose_json_object: attempt {idx} SUCCESS")
+            return value if isinstance(value, dict) else None
+
+        except json.JSONDecodeError as e:
+            dbg(f"_parse_loose_json_object: attempt {idx} FAILED")
+            dbg(f"error: {e}")
+            dbg(f"line={e.lineno} col={e.colno} pos={e.pos}")
+
+            start = max(0, e.pos - 200)
+            end = min(len(candidate), e.pos + 200)
+
+            dbg("CONTEXT START")
+            dbg(candidate[start:end])
+            dbg("CONTEXT END")
+
     return None
 
 
@@ -357,12 +372,122 @@ def contains_tool_use_markup(text: str) -> bool:
     return bool(TOOL_USE_MARKUP_RE.search(_normalize_tool_response(text)))
 
 
+def _parse_delimited_tool_call(raw: str) -> dict | None:
+    """Parse the delimiter-based tool format.
+
+    Expected shape (whitespace tolerant):
+
+        ToolName
+        field_one: value on one line
+        field_two: <<<TAG
+        ...multi-line text...
+        TAG
+        field_three: another inline value
+
+    Returns {"name": ToolName, "input": {...}} or None if it doesn't match.
+    """
+    lines = raw.splitlines()
+    # Skip leading blank lines.
+    idx = 0
+    while idx < len(lines) and not lines[idx].strip():
+        idx += 1
+    if idx >= len(lines):
+        return None
+    name = lines[idx].strip()
+    if not DELIMITED_NAME_RE.match(name):
+        return None
+    idx += 1
+
+    input_obj: dict[str, Any] = {}
+    while idx < len(lines):
+        line = lines[idx]
+        stripped = line.strip()
+        if not stripped:
+            idx += 1
+            continue
+        match = DELIMITED_KEY_RE.match(stripped)
+        if not match:
+            # Anything other than `field:` here means this isn't our format.
+            return None
+        field, after_colon = match.group(1), match.group(2)
+        idx += 1
+
+        heredoc_open = HEREDOC_OPEN_RE.match(after_colon.strip())
+        if heredoc_open:
+            tag = heredoc_open.group(1)
+            collected: list[str] = []
+            closed = False
+            while idx < len(lines):
+                current = lines[idx]
+                if current.strip() == tag:
+                    closed = True
+                    idx += 1
+                    break
+                collected.append(current)
+                idx += 1
+            if not closed:
+                return None
+            input_obj[field] = "\n".join(collected)
+            continue
+
+        if after_colon.strip():
+            # Inline scalar value on the same line as the key.
+            input_obj[field] = after_colon
+            continue
+
+        # `field:` with empty value, possibly followed by a heredoc on the next
+        # non-blank line. If the next non-blank line is a heredoc opener, use
+        # that; otherwise treat the empty value as the empty string.
+        peek = idx
+        while peek < len(lines) and not lines[peek].strip():
+            peek += 1
+        if peek < len(lines):
+            heredoc_open = HEREDOC_OPEN_RE.match(lines[peek].strip())
+            if heredoc_open:
+                tag = heredoc_open.group(1)
+                idx = peek + 1
+                collected = []
+                closed = False
+                while idx < len(lines):
+                    current = lines[idx]
+                    if current.strip() == tag:
+                        closed = True
+                        idx += 1
+                        break
+                    collected.append(current)
+                    idx += 1
+                if not closed:
+                    return None
+                input_obj[field] = "\n".join(collected)
+                continue
+        input_obj[field] = ""
+
+    if not input_obj:
+        # A bare tool name with no fields is suspicious; require at least one
+        # field so we don't accidentally match free-form prose like "Edit".
+        return None
+    return {"name": name, "input": input_obj}
+
+
 def _parse_tool_call(raw: str) -> dict | None:
     raw = raw.strip()
-    raw = re.sub(r"^```(?:json|xml|html)?\s*", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"^```(?:json|xml|html|yaml|yml|text)?\s*", "", raw, flags=re.IGNORECASE)
     raw = re.sub(r"\s*```$", "", raw).strip()
 
+    dbg("TOOL RAW START")
+    dbg(raw[:3000])
+    dbg("TOOL RAW END")
+
+    # Prefer the delimiter-based format because it avoids the JSON escaping
+    # nightmare for tools like Edit/Write that contain large code blobs.
+    delimited = _parse_delimited_tool_call(raw)
+    if delimited:
+        dbg("TOOL PARSED via delimited format")
+        return delimited
+
     tool = _parse_loose_json_object(raw)
+
+    dbg(f"TOOL PARSED via JSON = {tool is not None}")
     if tool and "name" in tool:
         return tool
 
@@ -399,6 +524,64 @@ def _available_tools_by_name(payload: dict) -> dict[str, dict]:
     return tools
 
 
+def _coerce_field_value(value: Any, prop_schema: Any) -> Any:
+    """Coerce a string value to match a JSON schema declared type.
+
+    The delimiter-based tool format only produces strings, so once we have a
+    parsed tool call we look at the tool's input_schema and convert numbers,
+    booleans, arrays, and objects back to their proper types. Anything we
+    can't confidently coerce is returned unchanged.
+    """
+    if not isinstance(value, str) or not isinstance(prop_schema, dict):
+        return value
+    declared = prop_schema.get("type")
+    types = declared if isinstance(declared, list) else [declared]
+    stripped = value.strip()
+    for t in types:
+        if t == "string":
+            return value
+        if t == "integer":
+            try:
+                return int(stripped)
+            except ValueError:
+                continue
+        if t == "number":
+            try:
+                return float(stripped)
+            except ValueError:
+                continue
+        if t == "boolean":
+            low = stripped.lower()
+            if low in {"true", "yes", "on", "1"}:
+                return True
+            if low in {"false", "no", "off", "0"}:
+                return False
+            continue
+        if t in {"array", "object"}:
+            try:
+                return json.loads(stripped)
+            except (json.JSONDecodeError, ValueError):
+                continue
+        if t == "null":
+            if stripped.lower() in {"null", "none", ""}:
+                return None
+            continue
+    return value
+
+
+def _coerce_tool_input(name: str, input_obj: dict, schemas: dict[str, dict]) -> dict:
+    schema = schemas.get(name, {}).get("input_schema")
+    if not isinstance(schema, dict):
+        return input_obj
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return input_obj
+    coerced: dict[str, Any] = {}
+    for key, val in input_obj.items():
+        coerced[key] = _coerce_field_value(val, properties.get(key))
+    return coerced
+
+
 def validate_tool_use(
     payload: dict, tool: dict | None
 ) -> tuple[dict | None, str | None]:
@@ -420,6 +603,7 @@ def validate_tool_use(
             None,
             f"Rejected malformed tool call for {name!r}: input must be an object.",
         )
+    input_obj = _coerce_tool_input(name, input_obj, tools_by_name)
 
     schema = tools_by_name.get(name, {}).get("input_schema")
     required = schema.get("required") if isinstance(schema, dict) else None
