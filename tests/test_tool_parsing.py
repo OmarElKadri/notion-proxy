@@ -42,8 +42,12 @@ def test_delimited_empty_then_heredoc():
     assert tool["input"]["content"] == "line one\nline two"
 
 
-def test_bare_tool_name_with_no_fields_is_rejected():
-    assert parse_tool_uses(_wrap("Edit")) == []
+def test_bare_tool_name_with_no_fields_is_parsed():
+    # The parser emits a bare-name call with empty input; the validator is the
+    # authority on whether that's legal (depends on the tool's required fields).
+    assert parse_tool_uses(_wrap("EnterPlanMode")) == [
+        {"name": "EnterPlanMode", "input": {}}
+    ]
 
 
 def test_fenced_json_is_stripped():

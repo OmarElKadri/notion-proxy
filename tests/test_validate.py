@@ -31,12 +31,28 @@ TYPED_TOOL = {
 }
 
 
+NOARG_TOOL = {
+    "name": "EnterPlanMode",
+    "input_schema": {"type": "object", "properties": {}},
+}
+
+
 def test_valid_tool_passes():
     checked, error = validate_tool_use(
         _payload(READ_TOOL), {"name": "Read", "input": {"file_path": "a.py"}}
     )
     assert error is None
     assert checked == {"name": "Read", "input": {"file_path": "a.py"}}
+
+
+def test_zero_argument_tool_with_empty_input_passes():
+    # A bare call like <tool_use>EnterPlanMode</tool_use> is valid: the schema
+    # declares no required fields, so empty input is complete.
+    checked, error = validate_tool_use(
+        _payload(NOARG_TOOL), {"name": "EnterPlanMode", "input": {}}
+    )
+    assert error is None
+    assert checked == {"name": "EnterPlanMode", "input": {}}
 
 
 def test_type_coercion_from_strings():

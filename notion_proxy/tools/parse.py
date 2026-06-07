@@ -226,10 +226,10 @@ def _parse_delimited_tool_call(raw: str) -> dict | None:
                 continue
         input_obj[field] = ""
 
-    if not input_obj:
-        # A bare tool name with no fields is suspicious; require at least one
-        # field so we don't accidentally match free-form prose like "Edit".
-        return None
+    # A bare tool name with no fields is a valid call for zero-argument tools
+    # (e.g. EnterPlanMode). We're already inside a <tool_use> block, so the name
+    # was deliberate — emit it and let validation reject it if the tool requires
+    # fields or doesn't exist.
     return {"name": name, "input": input_obj}
 
 
