@@ -96,3 +96,51 @@ def test_json_and_sse_agree_on_tool_names():
     events = _parse_sse(iter_sse_events("msg_1", "m", resolved, 400))
     sse_names = [d["content_block"]["name"] for e, d in events if e == "content_block_start"]
     assert json_names == sse_names == ["Read", "Bash"]
+
+
+def test_sse_multi_tool_sequence():
+    """Verify monotonic indexing across text + multiple tool_use blocks."""
+    resolved = ResolvedTurn(
+        text="I'll check those files for you.",
+        tools=[
+            {"name": "Bash", "input": {"command": "ls"}},
+            {"name": "View", "input": {"file_path": "x.py"}},
+        ],
+    )
+    events = _parse_sse(iter_sse_events("msg_1", "m", resolved, 400))
+    names = [e for e, _ in events]
+
+    assert names[0] == "message_start"
+    assert names[-1] == "message_stop"
+
+    starts = [(e, d) for e, d in events if e == "content_block_start"]
+    assert len(starts) == 3  # text + 2 tools
+
+    # Text block at index 0
+    assert starts[0][1]["index"] == 0
+    assert starts[0][1]["content_block"]["type"] == "text"
+
+    # First tool at index 1
+    assert starts[1][1]["index"] == 1
+    assert starts[1][1]["content_block"]["type"] == "tool_use"
+    assert starts[1][1]["content_block"]["name"] == "Bash"
+
+    # Second tool at index 2
+    assert starts[2][1]["index"] == 2
+    assert starts[2][1]["content_block"]["type"] == "tool_use"
+    assert starts[2][1]["content_block"]["name"] == "View"
+
+    # Each block has matching start/delta/stop indices
+    for idx, expected_type in enumerate(["text", "tool_use", "tool_use"]):
+        deltas = [d for e, d in events if e == "content_block_delta" and d["index"] == idx]
+        stops = [d for e, d in events if e == "content_block_stop" and d["index"] == idx]
+        assert len(deltas) == 1
+        assert len(stops) == 1
+        if expected_type == "text":
+            assert deltas[0]["delta"]["type"] == "text_delta"
+        else:
+            assert deltas[0]["delta"]["type"] == "input_json_delta"
+
+    # Final stop reason
+    msg_delta = next(d for e, d in events if e == "message_delta")
+    assert msg_delta["delta"]["stop_reason"] == "tool_use"

@@ -43,8 +43,32 @@ Rules:
 - Boolean/number fields can be written as inline values like `replace_all: false` or `offset: 0`.
 - Emit only one tool name per <tool_use> block. Emit multiple <tool_use> blocks if multiple tool calls are needed.
 
+CRITICAL — Separate multiple tool calls with a blank line. The closing `</tool_use>` and the next `<tool_use>` must NEVER be glued together.
+
+WRONG (do not do this — blocks will be rejected):
+<tool_use>
+TodoWrite
+todos: [{"content": "plan"}]
+</tool_use<tool_use>
+ExitPlanMode
+</tool_use>
+
+CORRECT:
+<tool_use>
+TodoWrite
+todos: [{"content": "plan"}]
+</tool_use>
+
+<tool_use>
+ExitPlanMode
+</tool_use>
+
 Otherwise (no tool needed) emit only the assistant response content.
 
-<claude_code_request_json>
-{{REQUEST_JSON}}
-</claude_code_request_json>
+{{SYSTEM_PROMPT}}---
+AVAILABLE TOOLS:
+{{TOOLS_SUMMARY}}
+
+---
+CONVERSATION HISTORY:
+{{CONVERSATION_TRANSCRIPT}}

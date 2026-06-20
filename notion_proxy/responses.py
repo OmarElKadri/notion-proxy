@@ -8,11 +8,17 @@ differ in *how* they frame it on the wire, exactly as the Anthropic API does.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Iterator
 
 from .logging_utils import log_event
+
+
+_TOOL_USE_TAG_RE = re.compile(
+    r"<tool_use\b[^>]*>.*?</tool_use\s*>", re.DOTALL | re.IGNORECASE
+)
 
 
 @dataclass
@@ -24,12 +30,22 @@ class ResolvedTurn:
     reject_reason: str | None = None
     parsed_tools: list[dict] = field(default_factory=list)
 
+    def text_without_tools(self) -> str:
+        """Return prose with ``<tool_use>…</tool_use>`` blocks removed."""
+        return _TOOL_USE_TAG_RE.sub("", self.text).strip()
+
 
 def sse(event: str, data: dict) -> bytes:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n".encode()
 
 
 def tool_content_blocks(tools: list[dict]) -> list[dict]:
+    """Public alias for backward compatibility."""
+    return _tool_content_blocks(tools)
+
+
+def _tool_content_blocks(tools: list[dict]) -> list[dict]:
+    """Build Anthropic tool_use content blocks with unique IDs."""
     return [
         {
             "type": "tool_use",
@@ -41,31 +57,53 @@ def tool_content_blocks(tools: list[dict]) -> list[dict]:
     ]
 
 
+def _content_blocks(resolved: ResolvedTurn) -> list[dict]:
+    """Build Anthropic content blocks in monotonic order (text first, then tools).
+
+    If the turn contains both prose and tool calls, both are emitted so that
+    the assistant can say something *and* call a tool in the same message.
+    """
+    blocks: list[dict] = []
+    clean_text = resolved.text_without_tools()
+    # If tools are present and there is clean prose, emit text first.
+    if clean_text:
+        blocks.append({"type": "text", "text": clean_text})
+    if resolved.tools:
+        blocks.extend(_tool_content_blocks(resolved.tools))
+    # Fallback: no tools and no clean text → emit the raw text (even if empty).
+    if not blocks:
+        blocks.append({"type": "text", "text": resolved.text or ""})
+    return blocks
+
+
+def _estimate_output_tokens(blocks: list[dict]) -> int:
+    """Crude token estimate for usage reporting."""
+    total = 0
+    for block in blocks:
+        if block["type"] == "text":
+            total += max(1, len(block.get("text", "")) // 4)
+        elif block["type"] == "tool_use":
+            total += max(1, len(json.dumps(block.get("input", {}), ensure_ascii=False)) // 4)
+    return total or 1
+
+
 def build_message_json(
     msg_id: str, model: str, resolved: ResolvedTurn, prompt_len: int
 ) -> dict:
-    if resolved.tools:
-        return {
-            "id": msg_id,
-            "type": "message",
-            "role": "assistant",
-            "model": model,
-            "content": tool_content_blocks(resolved.tools),
-            "stop_reason": "tool_use",
-            "stop_sequence": None,
-            "usage": {"input_tokens": 1, "output_tokens": max(1, len(resolved.tools))},
-        }
+    blocks = _content_blocks(resolved)
+    stop_reason = "tool_use" if resolved.tools else "end_turn"
+    input_tokens = 1 if resolved.tools else max(1, prompt_len // 4)
     return {
         "id": msg_id,
         "type": "message",
         "role": "assistant",
         "model": model,
-        "content": [{"type": "text", "text": resolved.text}],
-        "stop_reason": "end_turn",
+        "content": blocks,
+        "stop_reason": stop_reason,
         "stop_sequence": None,
         "usage": {
-            "input_tokens": max(1, prompt_len // 4),
-            "output_tokens": max(1, len(resolved.text) // 4),
+            "input_tokens": input_tokens,
+            "output_tokens": _estimate_output_tokens(blocks),
         },
     }
 
@@ -77,68 +115,11 @@ def iter_sse_events(
         log_event("SEND TO CLAUDE CODE SSE EVENT", {"event": event, "data": data})
         return sse(event, data)
 
-    if resolved.tools:
-        yield emit(
-            "message_start",
-            {
-                "type": "message_start",
-                "message": {
-                    "id": msg_id,
-                    "type": "message",
-                    "role": "assistant",
-                    "model": model,
-                    "content": [],
-                    "stop_reason": None,
-                    "stop_sequence": None,
-                    "usage": {
-                        "input_tokens": max(1, prompt_len // 4),
-                        "output_tokens": max(1, len(resolved.tools)),
-                    },
-                },
-            },
-        )
-        for index, tool in enumerate(resolved.tools):
-            yield emit(
-                "content_block_start",
-                {
-                    "type": "content_block_start",
-                    "index": index,
-                    "content_block": {
-                        "type": "tool_use",
-                        "id": f"toolu_{uuid.uuid4().hex}",
-                        "name": tool["name"],
-                        "input": {},
-                    },
-                },
-            )
-            yield emit(
-                "content_block_delta",
-                {
-                    "type": "content_block_delta",
-                    "index": index,
-                    "delta": {
-                        "type": "input_json_delta",
-                        "partial_json": json.dumps(
-                            tool.get("input", {}), ensure_ascii=False
-                        ),
-                    },
-                },
-            )
-            yield emit(
-                "content_block_stop",
-                {"type": "content_block_stop", "index": index},
-            )
-        yield emit(
-            "message_delta",
-            {
-                "type": "message_delta",
-                "delta": {"stop_reason": "tool_use", "stop_sequence": None},
-                "usage": {"output_tokens": max(1, len(resolved.tools))},
-            },
-        )
-        yield emit("message_stop", {"type": "message_stop"})
-        return
+    blocks = _content_blocks(resolved)
+    stop_reason = "tool_use" if resolved.tools else "end_turn"
+    output_tokens = _estimate_output_tokens(blocks)
 
+    input_tokens = 1 if resolved.tools else max(1, prompt_len // 4)
     yield emit(
         "message_start",
         {
@@ -152,36 +133,74 @@ def iter_sse_events(
                 "stop_reason": None,
                 "stop_sequence": None,
                 "usage": {
-                    "input_tokens": max(1, prompt_len // 4),
+                    "input_tokens": input_tokens,
                     "output_tokens": 0,
                 },
             },
         },
     )
-    yield emit(
-        "content_block_start",
-        {
-            "type": "content_block_start",
-            "index": 0,
-            "content_block": {"type": "text", "text": ""},
-        },
-    )
-    if resolved.text:
-        yield emit(
-            "content_block_delta",
-            {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {"type": "text_delta", "text": resolved.text},
-            },
-        )
-    yield emit("content_block_stop", {"type": "content_block_stop", "index": 0})
+
+    for index, block in enumerate(blocks):
+        if block["type"] == "text":
+            yield emit(
+                "content_block_start",
+                {
+                    "type": "content_block_start",
+                    "index": index,
+                    "content_block": {"type": "text", "text": ""},
+                },
+            )
+            if block.get("text"):
+                yield emit(
+                    "content_block_delta",
+                    {
+                        "type": "content_block_delta",
+                        "index": index,
+                        "delta": {"type": "text_delta", "text": block["text"]},
+                    },
+                )
+            yield emit(
+                "content_block_stop",
+                {"type": "content_block_stop", "index": index},
+            )
+        elif block["type"] == "tool_use":
+            yield emit(
+                "content_block_start",
+                {
+                    "type": "content_block_start",
+                    "index": index,
+                    "content_block": {
+                        "type": "tool_use",
+                        "id": block["id"],
+                        "name": block["name"],
+                        "input": {},
+                    },
+                },
+            )
+            yield emit(
+                "content_block_delta",
+                {
+                    "type": "content_block_delta",
+                    "index": index,
+                    "delta": {
+                        "type": "input_json_delta",
+                        "partial_json": json.dumps(
+                            block.get("input", {}), ensure_ascii=False
+                        ),
+                    },
+                },
+            )
+            yield emit(
+                "content_block_stop",
+                {"type": "content_block_stop", "index": index},
+            )
+
     yield emit(
         "message_delta",
         {
             "type": "message_delta",
-            "delta": {"stop_reason": "end_turn", "stop_sequence": None},
-            "usage": {"output_tokens": max(1, len(resolved.text) // 4)},
+            "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+            "usage": {"output_tokens": output_tokens},
         },
     )
     yield emit("message_stop", {"type": "message_stop"})

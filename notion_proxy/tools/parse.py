@@ -30,7 +30,18 @@ DELIMITED_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _normalize_tool_response(text: str) -> str:
-    return unescape(text).replace("﻿", "").strip()
+    text = unescape(text).replace("﻿", "")
+    # Notion sometimes glues consecutive tags together:
+    #     </tool_use<tool_use>
+    # The closing tag regex needs the `>`; without it the depth tracker
+    # never matches the close and returns zero parsed bodies.
+    text = re.sub(
+        r"</tool_use\s*(?=<tool_use)",
+        "</tool_use>\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text.strip()
 
 
 def contains_tool_use_markup(text: str) -> bool:

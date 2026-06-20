@@ -12,7 +12,7 @@ from .config import CONFIG_PATH, load_config
 from .claude_io import latest_user_query
 from .logging_utils import dbg, log_event, log_turn
 from .notion.client import collect_notion_response
-from .prompt import build_notion_prompt
+from .converters import build_notion_prompt
 from .repair import repair_self_referential_response
 from .responses import (
     ResolvedTurn,

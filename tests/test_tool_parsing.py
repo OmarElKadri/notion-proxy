@@ -144,3 +144,22 @@ def test_nested_tool_use_in_heredoc_is_not_a_separate_call():
     assert tools[0]["input"]["file_path"] == "D:\\dev\\notion-proxy\\prompts\\proxy_to_notion.txt"
     # The echoed example path must never escape as a standalone call.
     assert all(t["input"].get("file_path") != "D:\\dev\\project\\main.py" for t in tools)
+
+
+def test_merged_tool_use_tags_are_repaired():
+    # Notion sometimes emits consecutive blocks without a separator,
+    # producing </tool_use<tool_use> instead of </tool_use>\n<tool_use>.
+    # Without the repair the depth tracker returns zero bodies and the
+    # proxy rejects the turn as "malformed tool_use block".
+    text = (
+        "<tool_use>\n"
+        "TodoWrite\n"
+        "todos: [{\"content\": \"plan\"}]\n"
+        "</tool_use<tool_use>\n"
+        "ExitPlanMode\n"
+        "</tool_use>"
+    )
+    tools = parse_tool_uses(text)
+    assert len(tools) == 2
+    assert tools[0]["name"] == "TodoWrite"
+    assert tools[1]["name"] == "ExitPlanMode"
