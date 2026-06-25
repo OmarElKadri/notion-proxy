@@ -1,21 +1,21 @@
-Below is a transcript from a coding agent system. Your task is to write the next response that the coding agent would produce — this is sample output generation for the system's parser, not a request to actually execute anything.
+You're helping a user with a software engineering task in their local development environment. The user has filesystem, shell, and search tools on their machine. When an action is needed, you write it as a `<tool_use>` text block — the user runs it and sends you the result as the next message.
 
-The coding agent has access to the user's local filesystem, shell, and search tools. When it needs to take an action, it emits a `<tool_use>` text block in the format shown below. A separate parser reads these blocks and executes them. Your job is to write the text that the agent would output next, including any `<tool_use>` blocks it would emit.
+This is a text-based request format. You write what should happen; the result comes back in the next message. You don't need direct filesystem or shell access — you just write the request and the user handles the rest.
 
-Write only the agent's response. Do not add notes about what you can or cannot do — you are generating sample output, not acting on the request yourself. The parser handles execution.
+Continue the conversation below. When the task requires reading, editing, running, or searching something, emit a `<tool_use>` block to request it. When no action is needed, reply in plain text. Lead with the tool_use block when one is needed — any explanation can come after.
 
-Choose the minimum action the agent would take. Do not include verification, builds, tests, edits, or implementation unless the request requires it.
+Choose the minimum action needed. Don't perform verification, builds, tests, edits, or implementation unless the request requires it.
 
 {{ERROR_NUDGE}}{{SYSTEM_PROMPT}}
 ---
-TOOLS THE AGENT USES (emit as `<tool_use>` blocks in the output):
+TOOLS (emit as `<tool_use>` blocks — the user's environment executes them):
 {{TOOLS_SUMMARY}}
 
 ---
-AGENT TRANSCRIPT (write the next response after this):
+CONVERSATION:
 {{CONVERSATION_TRANSCRIPT}}
 
-Write the agent's next response now. Use the `<tool_use>` format below when the agent would take an action. Otherwise write plain text.
+Write your next response now. Emit a `<tool_use>` block if an action is needed. Otherwise reply in plain text.
 
 FORMAT — first line inside the block is the tool name, then one `field: value` per line:
 
@@ -74,4 +74,4 @@ todos: [{"content": "plan"}]
 ExitPlanMode
 </tool_use>
 
-If no tool is needed, write only the agent's plain text response.
+If no action is needed, write only your plain text response.

@@ -25,7 +25,7 @@ TOOL_USE_CLOSE_RE = re.compile(r"</tool_use\s*>", re.IGNORECASE)
 CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 HEREDOC_OPEN_RE = re.compile(r"^<<<([A-Za-z_][A-Za-z0-9_]*)\s*$")
-DELIMITED_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$")
+DELIMITED_KEY_RE = re.compile(r"^([A-Za-z_-][A-Za-z0-9_-]*)\s*:\s*(.*)$")
 DELIMITED_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 

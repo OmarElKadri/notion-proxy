@@ -16,6 +16,21 @@ def test_delimited_inline_value():
     assert tool == {"name": "Read", "input": {"file_path": "/home/a/b.py"}}
 
 
+def test_delimited_hyphenated_field_name():
+    """Field names with hyphens (e.g. Grep's -i flag) must parse correctly.
+
+    Claude emits fields like `-i: true` — the key regex must allow hyphens
+    or the entire tool call is rejected as malformed.
+    """
+    tool = parse_tool_use(
+        _wrap("Grep\npattern: speed|power\npath: .\n-i: true")
+    )
+    assert tool == {
+        "name": "Grep",
+        "input": {"pattern": "speed|power", "path": ".", "-i": "true"},
+    }
+
+
 def test_delimited_heredoc_multiline():
     block = _wrap(
         "Edit\n"
