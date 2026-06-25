@@ -32,7 +32,11 @@ async def call_notion(
     prompt: str, cfg: dict, *, persist_threads: bool | None = None
 ) -> AsyncIterator[str]:
     body = render_body(
-        cfg["body_template"], prompt, "", cfg.get("notion_id_prefix", "")
+        cfg["body_template"],
+        prompt,
+        "",
+        cfg.get("notion_id_prefix", ""),
+        cfg.get("model", ""),
     )
     if persist_threads is None:
         persist_threads = persist_notion_threads(cfg)

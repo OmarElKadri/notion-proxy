@@ -12,8 +12,10 @@ It exists to demonstrate how HTTP proxying, API adaptation, and prompt templatin
 >
 > | Backend | Internal codename | Recommendation |
 > |---------|-------------------|----------------|
-> | **GPT** | `opal-quince-medium` | **Use this one** — currently performs better |
-> | Claude | `ambrosia-tart-high` | Avoid for now — weaker results in practice |
+> | **GPT** | `opal-quince-medium` | **Recommended** — emits tool calls reliably, no identity conflicts |
+> | Claude | `ambrosia-tart-high` | Works via a simulation-based prompt (the proxy uses a separate prompt template for Claude that frames tool calls as sample output generation). May occasionally include preamble text alongside tool calls, but the proxy parses the tool blocks correctly. |
+>
+> The proxy automatically selects the right prompt template based on the `model` field in `notion_config.json` — no manual configuration needed. The model alias is captured from your curl and written to the top-level `model` field. To switch backends, edit that field (or re-run the generator with `--model`). The body template's config step uses the `{{MODEL}}` placeholder, which is substituted at request time.
 
 ## Prerequisites
 
@@ -62,6 +64,12 @@ With the virtual environment still active:
 python3 generate_notion_config.py input_curl.txt -o notion_config.json
 ```
 
+To bake in a specific backend at generation time:
+
+```bash
+python3 generate_notion_config.py input_curl.txt -o notion_config.json --model ambrosia-tart-high
+```
+
 On Windows you can use `python` instead of `python3` if that is what your install exposes.
 
 The script:
@@ -69,6 +77,7 @@ The script:
 - Parses the curl command (URL, headers, cookies, JSON body)
 - Strips noisy tracing headers
 - Rewrites volatile IDs and timestamps into placeholders (`{{PROMPT}}`, `{{NOW}}`, etc.)
+- Parameterizes the model alias as `{{MODEL}}` and records the default in the top-level `model` field
 - Writes a reusable `notion_config.json`
 
 `notion_config.json` is also gitignored. It contains your session cookie — treat it like a password.
@@ -95,7 +104,8 @@ Prompt text lives in `prompts/` — edit these files to change proxy behavior wi
 
 | File | When it runs | Placeholders |
 |------|--------------|--------------|
-| `prompts/proxy_to_notion.txt` | Every request | `{{REQUEST_JSON}}` — incoming Claude Code payload |
+| `prompts/proxy_to_notion.txt` | Every request (GPT backend) | `{{ERROR_NUDGE}}`, `{{SYSTEM_PROMPT}}`, `{{TOOLS_SUMMARY}}`, `{{CONVERSATION_TRANSCRIPT}}` |
+| `prompts/proxy_to_notion_claude.txt` | Every request (Claude backend) | Same placeholders — uses a simulation framing so Claude emits tool calls despite Notion's identity anchoring |
 | `prompts/repair_self_reference.txt` | Only when Notion replies as "Notion AI" instead of continuing the agent conversation | `{{AVAILABLE_TOOLS}}`, `{{ORIGINAL_PROMPT}}`, `{{BAD_RESPONSE}}` |
 
 The repair template is used by `repair_self_referential_response()` in `notion_proxy/repair.py`: after each Notion response, if the text matches self-referential patterns (e.g. "I'm Notion AI", "I can't access local files") and isn't already a valid tool call, the proxy sends a second Notion request with the repair prompt to rewrite the answer.
@@ -146,7 +156,8 @@ Notion session cookies expire. When requests start failing with auth errors:
 | `notion_config.example.json` | Annotated config template (safe to commit) |
 | `input_curl.txt` | Your captured curl (local only, gitignored) |
 | `notion_config.json` | Generated runtime config (local only, gitignored) |
-| `prompts/proxy_to_notion.txt` | Main prompt template sent to Notion on every request |
+| `prompts/proxy_to_notion.txt` | Main prompt template (GPT backend) |
+| `prompts/proxy_to_notion_claude.txt` | Claude backend prompt (simulation framing) |
 | `prompts/repair_self_reference.txt` | Fallback prompt when Notion gives a self-referential reply |
 
 ## Security notes

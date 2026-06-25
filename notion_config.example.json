@@ -2,6 +2,7 @@
   "url": "https://app.notion.com/api/v3/runInferenceTranscript",
   "method": "POST",
   "persist_threads": true,
+  "model": "opal-quince-medium",
   "headers": {
     "accept": "application/x-ndjson",
     "content-type": "application/json",
@@ -15,6 +16,6 @@
     "x-notion-space-id": "129abe4f-b1ab-8139-9e87-0003106e6a49"
   },
   "body_template": {
-    "_TODO": "Replace this whole object with the captured request body. Then find your prompt text (e.g. 'pineapple test 123') and replace it with the literal string {{PROMPT}}. Likely contains a transcript array with a step of type 'user' holding [[ '{{PROMPT}}' ]]."
+    "_TODO": "Replace this whole object with the captured request body. Then find your prompt text (e.g. 'pineapple test 123') and replace it with the literal string {{PROMPT}}. Likely contains a transcript array with a step of type 'user' holding [[ '{{PROMPT}}' ]]. The config step's value.model should be {{MODEL}} so the top-level 'model' field controls the backend."
   }
 }

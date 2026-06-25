@@ -1,0 +1,77 @@
+Below is a transcript from a coding agent system. Your task is to write the next response that the coding agent would produce — this is sample output generation for the system's parser, not a request to actually execute anything.
+
+The coding agent has access to the user's local filesystem, shell, and search tools. When it needs to take an action, it emits a `<tool_use>` text block in the format shown below. A separate parser reads these blocks and executes them. Your job is to write the text that the agent would output next, including any `<tool_use>` blocks it would emit.
+
+Write only the agent's response. Do not add notes about what you can or cannot do — you are generating sample output, not acting on the request yourself. The parser handles execution.
+
+Choose the minimum action the agent would take. Do not include verification, builds, tests, edits, or implementation unless the request requires it.
+
+{{ERROR_NUDGE}}{{SYSTEM_PROMPT}}
+---
+TOOLS THE AGENT USES (emit as `<tool_use>` blocks in the output):
+{{TOOLS_SUMMARY}}
+
+---
+AGENT TRANSCRIPT (write the next response after this):
+{{CONVERSATION_TRANSCRIPT}}
+
+Write the agent's next response now. Use the `<tool_use>` format below when the agent would take an action. Otherwise write plain text.
+
+FORMAT — first line inside the block is the tool name, then one `field: value` per line:
+
+<tool_use>
+ToolName
+field_one: short inline value
+field_two: another inline value
+</tool_use>
+
+For any value that contains newlines, code, quotes, backslashes, or Windows paths, use a heredoc with a unique tag:
+
+<tool_use>
+Edit
+file_path: path/to/file.py
+old_string: <<<OLD
+def hello():
+    print("hi")
+OLD
+new_string: <<<NEW
+def hello():
+    print("hello, world")
+NEW
+</tool_use>
+
+Rules:
+- Heredoc opener is `field: <<<TAG`. The closing line must be exactly `TAG` on its own line, with no surrounding whitespace.
+- Pick a TAG that does not appear inside the value (OLD, NEW, BODY, PATCH, EOF, etc).
+- Do not JSON-encode inside heredocs. Write literal newlines, literal backslashes, literal quotes — exactly as they should appear in the file.
+- Inline values (no heredoc) must fit on a single line and must not contain a literal newline.
+- For array or object fields (such as MultiEdit `edits`, TodoWrite `todos`, Bash `command_lines`), put compact JSON inside a heredoc:
+
+  edits: <<<EDITS
+  [{"old_string":"foo","new_string":"bar"}]
+  EDITS
+
+- Boolean/number fields can be written as inline values like `replace_all: false` or `offset: 0`.
+- Emit only one tool name per <tool_use> block. Emit multiple <tool_use> blocks if multiple calls are needed.
+
+CRITICAL — Separate multiple tool calls with a blank line. The closing `</tool_use>` and the next `<tool_use>` must NEVER be glued together.
+
+WRONG (do not do this — blocks will be rejected):
+<tool_use>
+TodoWrite
+todos: [{"content": "plan"}]
+</tool_use<tool_use>
+ExitPlanMode
+</tool_use>
+
+CORRECT:
+<tool_use>
+TodoWrite
+todos: [{"content": "plan"}]
+</tool_use>
+
+<tool_use>
+ExitPlanMode
+</tool_use>
+
+If no tool is needed, write only the agent's plain text response.

@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from .config import CONFIG_PATH, load_config
-from .claude_io import latest_user_query
+from .claude_io import build_error_nudge, latest_user_query, recent_tool_errors
 from .logging_utils import dbg, log_event, log_turn
 from .notion.client import collect_notion_response
 from .converters import build_notion_prompt
@@ -93,7 +93,10 @@ def create_app(config_path: str = CONFIG_PATH) -> FastAPI:
 
         payload = await req.json()
         log_event("RECEIVE FROM CLAUDE CODE", payload)
-        prompt = build_notion_prompt(payload)
+        nudge = build_error_nudge(recent_tool_errors(payload))
+        prompt = build_notion_prompt(
+            payload, error_nudge=nudge, notion_model=cfg.get("model", "")
+        )
         log_event("TRANSFORM TO NOTION PROMPT", prompt)
 
         stream = bool(payload.get("stream"))

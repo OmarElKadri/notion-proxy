@@ -151,6 +151,29 @@ def test_build_tools_summary():
     assert "required" in summary
 
 
+def test_build_tools_summary_compact_one_line_per_tool():
+    """Each tool is a single line with args + required, no multi-paragraph prose."""
+    long_desc = "This is a tool. " * 50  # well over the 140 char cap
+    tools = [
+        UnifiedTool(name="Bash", description=long_desc, input_schema={"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}),
+        UnifiedTool(name="Read", description=None, input_schema={"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]}),
+    ]
+    summary = build_tools_summary(tools)
+    lines = [l for l in summary.splitlines() if l.strip()]
+    assert len(lines) == 2  # one line per tool, no extra indented lines
+    bash_line = lines[0]
+    assert "Bash" in bash_line
+    assert "args [command]" in bash_line
+    assert "required [command]" in bash_line
+    # Description is truncated to a single short line.
+    assert len(bash_line) < 250
+    assert "…" in bash_line
+    read_line = lines[1]
+    assert "Read" in read_line
+    assert "args [file_path]" in read_line
+    assert "required [file_path]" in read_line
+
+
 def test_build_tools_summary_empty():
     assert build_tools_summary([]) == "(no tools available)"
 

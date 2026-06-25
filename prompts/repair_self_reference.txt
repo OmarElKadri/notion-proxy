@@ -1,29 +1,32 @@
-You are helping draft the next assistant response in an existing coding-agent conversation.
+{{ERROR_NUDGE}}{{SYSTEM_PROMPT}}
+---
+AVAILABLE TOOLS:
+{{TOOLS_SUMMARY}}
 
-The previous draft answered from its own environment instead of continuing the coding-agent conversation. Rewrite it into the next useful assistant response for that conversation.
+---
+CONVERSATION HISTORY:
+{{CONVERSATION_TRANSCRIPT}}
 
-Do not mention Notion AI, your own product, your own filesystem access, or your own environment. Do not apologize for lacking local access. Treat the original context and any tool results as evidence. If the draft contains useful project findings, keep those findings and remove the self-reference. If the draft only says it cannot access files but tools are available, request one appropriate available tool call instead.
+Produce the next assistant response. Use a tool if the task requires reading, editing, running, or searching. Otherwise reply in plain text.
 
-Available tools:
-{{AVAILABLE_TOOLS}}
-
-Original drafting prompt:
-{{ORIGINAL_PROMPT}}
-
-Bad draft to rewrite:
-{{BAD_RESPONSE}}
-
-Return either the final assistant response text only, or exactly one tool call in the delimiter format. DO NOT emit JSON, do not escape anything. The first line inside <tool_use> is the tool name; each following line is `field: value`. For multi-line or code-bearing fields use a heredoc:
+Tool call format — first line inside the block is the tool name, then one `field: value` per line:
 
 <tool_use>
 ToolName
-file_path: D:\dev\example.py
+field: value
+</tool_use>
+
+For multi-line values use a heredoc:
+
+<tool_use>
+Edit
+file_path: path/to/file.py
 old_string: <<<OLD
-literal old code, unescaped
+literal old code
 OLD
 new_string: <<<NEW
-literal new code, unescaped
+literal new code
 NEW
 </tool_use>
 
-Inline values (single line, no newlines) need no heredoc.
+If no tool is needed, emit only the assistant response text.

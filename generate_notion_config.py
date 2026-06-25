@@ -59,6 +59,12 @@ P_CONTEXT_ID = ph("NUUID:contextStep")
 P_USER_ID = ph("NUUID:userStep")
 P_NOW = ph("NOW")
 P_PROMPT = ph("PROMPT")
+P_MODEL = ph("MODEL")
+
+# Known Notion AI backend aliases (see README). The captured curl carries one
+# of these in the config step's ``value.model``; we parameterize it so the
+# runtime config can switch backends without re-capturing a curl.
+KNOWN_MODELS = {"ambrosia-tart-high", "opal-quince-medium"}
 
 
 # Headers we don't want to carry into the reusable config.
@@ -186,17 +192,27 @@ def notion_id_prefix(body):
     return ""
 
 
-def build_body_template(body):
-    """Rewrite the parsed request body into a parameterized template."""
+def build_body_template(body, model_override=None):
+    """Rewrite the parsed request body into a parameterized template.
+
+    If ``model_override`` is given it is used as the default model alias;
+    otherwise the alias captured in the config step is preserved and the
+    ``{{MODEL}}`` placeholder is substituted at request time from the config's
+    top-level ``model`` field.
+    """
     transcript = body.get("transcript", []) or []
 
     config_step = context_step = user_step = None
+    captured_model = None
     for step in transcript:
         if not isinstance(step, dict):
             continue
         t = step.get("type")
         if t == "config" and config_step is None:
             config_step = step
+            val = step.get("value")
+            if isinstance(val, dict) and isinstance(val.get("model"), str):
+                captured_model = val["model"]
         elif t == "context" and context_step is None:
             context_step = step
         elif t == "user" and user_step is None:
@@ -207,6 +223,12 @@ def build_body_template(body):
     if config_step is not None:
         cs = json.loads(json.dumps(config_step))  # deep copy
         cs["id"] = P_CONFIG_ID
+        # Parameterize the model alias so the runtime config can switch
+        # backends. If an explicit override was passed, bake it in directly;
+        # otherwise leave the placeholder and record the captured default.
+        cv = cs.get("value")
+        if isinstance(cv, dict) and "model" in cv:
+            cv["model"] = model_override if model_override else P_MODEL
         new_transcript.append(cs)
 
     if context_step is not None:
@@ -249,8 +271,19 @@ def build_body_template(body):
     return tmpl
 
 
-def build_config(parsed):
+def build_config(parsed, model_override=None):
     body = json.loads(parsed["data"]) if parsed.get("data") else {}
+    body_template = build_body_template(body, model_override=model_override)
+    # Resolve the effective default model: explicit override wins, otherwise
+    # the alias captured in the config step.
+    captured = None
+    for step in body.get("transcript", []) or []:
+        if isinstance(step, dict) and step.get("type") == "config":
+            val = step.get("value")
+            if isinstance(val, dict) and isinstance(val.get("model"), str):
+                captured = val["model"]
+            break
+    model = model_override or captured or ""
     return {
         "url": parsed["url"],
         "method": parsed["method"],
@@ -259,7 +292,8 @@ def build_config(parsed):
         "notion_id_prefix": notion_id_prefix(body),
         "strip_system": True,
         "persona": "",
-        "body_template": build_body_template(body),
+        "model": model,
+        "body_template": body_template,
     }
 
 
@@ -272,6 +306,16 @@ def main(argv=None):
         "-o", "--output", help="Output JSON path. If omitted, prints to stdout."
     )
     ap.add_argument("--indent", type=int, default=2, help="JSON indent (default 2).")
+    ap.add_argument(
+        "--model",
+        default=None,
+        help=(
+            "Notion AI backend alias to bake into the config. "
+            "Known: opal-quince-medium (GPT, recommended), "
+            "ambrosia-tart-high (Claude, currently broken — see README). "
+            "Defaults to the alias captured in the curl."
+        ),
+    )
     args = ap.parse_args(argv)
 
     raw = read_curl(args.input)
@@ -284,7 +328,7 @@ def main(argv=None):
         except json.JSONDecodeError as e:
             sys.exit(f"Error: request body is not valid JSON: {e}")
 
-    config = build_config(parsed)
+    config = build_config(parsed, model_override=args.model)
     text = json.dumps(config, indent=args.indent, ensure_ascii=False)
 
     if args.output:

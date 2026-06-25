@@ -46,6 +46,31 @@ def test_nuuid_default_bucket():
     assert "-00aa" in out["id"]
 
 
+def test_model_substitution_when_provided():
+    template = {"config": {"value": {"model": "{{MODEL}}"}}}
+    out = render_body(template, "p", "", model="ambrosia-tart-high")
+    assert out["config"]["value"]["model"] == "ambrosia-tart-high"
+
+
+def test_model_placeholder_left_intact_when_absent():
+    """Without a model arg, {{MODEL}} stays as-is (backward compatible)."""
+    template = {"config": {"value": {"model": "{{MODEL}}"}}}
+    out = render_body(template, "p", "")
+    assert out["config"]["value"]["model"] == "{{MODEL}}"
+
+
+def test_model_substitution_nested_in_transcript():
+    template = {
+        "transcript": [
+            {"type": "config", "value": {"model": "{{MODEL}}"}},
+            {"type": "user", "value": [["{{PROMPT}}"]]},
+        ]
+    }
+    out = render_body(template, "hello", "", model="opal-quince-medium")
+    assert out["transcript"][0]["value"]["model"] == "opal-quince-medium"
+    assert out["transcript"][1]["value"] == [["hello"]]
+
+
 def test_persist_threads_env_override(monkeypatch):
     monkeypatch.setenv("NOTION_PROXY_PERSIST_THREADS", "false")
     assert persist_notion_threads({"persist_threads": True}) is False
