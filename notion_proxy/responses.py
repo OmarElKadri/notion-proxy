@@ -20,6 +20,41 @@ _TOOL_USE_TAG_RE = re.compile(
     r"<tool_use\b[^>]*>.*?</tool_use\s*>", re.DOTALL | re.IGNORECASE
 )
 
+# Patterns matching the simulation-framing preamble that Claude emits before
+# tool calls (e.g. "Here's the next response the agent would produce:"). These
+# are meta-reasoning about the sample-output task, not useful assistant text.
+_SIM_PREAMBLE_LINE_RE = re.compile(
+    r"^(?:"
+    r"here'?s\s+(?:the\s+)?(?:next\s+)?response\s+(?:the\s+)?(?:coding\s+)?agent[^:]*:?"
+    r"|here'?s\s+(?:the\s+)?agent'?s\s+next\s+response[^:]*:?"
+    r"|this\s+is\s+a\s+simple,?\s+benign\s+request.*"
+    r"|.*\bsample\s+output\b.*"
+    r"|.*\bcoding\s+agent\s+(?:would|will)\s+produce\b.*"
+    r"|.*\bparser\b.*\bsample\b.*"
+    r"|.*\broleplay/sample-generation\b.*"
+    r"|.*\bharmless\s+roleplay\b.*"
+    r"|.*\bno\s+real\s+execution\s+involved\b.*"
+    r")\s*$",
+    re.IGNORECASE,
+)
+
+
+def _strip_simulation_preamble(text: str) -> str:
+    """Remove simulation-framing meta-reasoning lines from Claude's response.
+
+    Claude's simulation prompt causes it to emit preamble like "Here's the next
+    response the agent would produce:" before tool calls. These lines are
+    meta-reasoning about the sample-output task, not useful to the end user.
+    """
+    if not text:
+        return ""
+    kept = []
+    for line in text.splitlines():
+        if _SIM_PREAMBLE_LINE_RE.match(line.strip()):
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
 
 @dataclass
 class ResolvedTurn:
@@ -31,8 +66,13 @@ class ResolvedTurn:
     parsed_tools: list[dict] = field(default_factory=list)
 
     def text_without_tools(self) -> str:
-        """Return prose with ``<tool_use>…</tool_use>`` blocks removed."""
-        return _TOOL_USE_TAG_RE.sub("", self.text).strip()
+        """Return prose with ``<tool_use>…</tool_use>`` blocks removed.
+
+        Also strips simulation-framing preamble lines (e.g. "Here's the next
+        response the agent would produce:") that Claude emits before tool calls.
+        """
+        raw = _TOOL_USE_TAG_RE.sub("", self.text)
+        return _strip_simulation_preamble(raw)
 
 
 def sse(event: str, data: dict) -> bytes:

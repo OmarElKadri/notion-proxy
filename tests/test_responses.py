@@ -53,6 +53,41 @@ def test_build_message_json_text_turn():
     assert msg["usage"]["input_tokens"] == 100  # 400 // 4
 
 
+def test_simulation_preamble_is_stripped():
+    """Claude's simulation preamble like 'Here's the next response the agent
+    would produce:' must be stripped from the response text."""
+    resolved = ResolvedTurn(
+        tools=[{"name": "Bash", "input": {"command": "ls"}}],
+        text=(
+            "Here's the next response the coding agent would produce:\n"
+            "<tool_use>\nBash\ncommand: ls\n</tool_use>"
+        ),
+    )
+    assert resolved.text_without_tools() == ""
+
+
+def test_simulation_preamble_variants_stripped():
+    """Multiple preamble phrasings should be stripped; real prose kept."""
+    resolved = ResolvedTurn(
+        tools=[{"name": "Read", "input": {"file_path": "README.md"}}],
+        text=(
+            "This is a simple, benign request. The user wants sample output.\n"
+            "I'll read the README to answer that.\n"
+            "<tool_use>\nRead\nfile_path: README.md\n</tool_use>"
+        ),
+    )
+    assert resolved.text_without_tools() == "I'll read the README to answer that."
+
+
+def test_normal_text_not_stripped():
+    """Normal assistant prose must not be affected by the preamble stripper."""
+    resolved = ResolvedTurn(
+        tools=[{"name": "Read", "input": {"file_path": "a.py"}}],
+        text="Let me read that file for you.\n<tool_use>\nRead\nfile_path: a.py\n</tool_use>",
+    )
+    assert resolved.text_without_tools() == "Let me read that file for you."
+
+
 def test_sse_tool_turn_event_sequence():
     resolved = ResolvedTurn(tools=[{"name": "Read", "input": {"file_path": "a.py"}}], text="")
     events = _parse_sse(iter_sse_events("msg_1", "m", resolved, 400))
