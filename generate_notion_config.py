@@ -93,6 +93,28 @@ def normalize_curl(raw):
     return raw.strip()
 
 
+def decode_ansi_c(val):
+    """Decode a bash ``$'...'`` ANSI-C quoted string.
+
+    Python's ``shlex`` does not understand bash's ``$'...'`` syntax — it
+    strips the surrounding single quotes but keeps the leading ``$`` as a
+    literal character.  This function strips the ``$`` and decodes common
+    ANSI-C escape sequences (``\\n``, ``\\t``, ``\\NNN`` octal, ``\\xHH``
+    hex) via Python's ``unicode_escape`` codec so the result is proper JSON.
+
+    If the value does not start with ``$`` it is returned unchanged.
+    """
+    if not val or not val.startswith("$"):
+        return val
+    stripped = val[1:]
+    try:
+        import codecs
+
+        return codecs.decode(stripped, "unicode_escape")
+    except Exception:
+        return stripped
+
+
 def parse_curl(raw):
     """Return dict with url, method, headers(dict), cookie(str|None), data(str|None)."""
     text = normalize_curl(raw)
@@ -150,6 +172,7 @@ def parse_curl(raw):
             if not matched:
                 i += 1
                 data = tokens[i] if i < n else ""
+            data = decode_ansi_c(data)
         elif tok in ("-X", "--request") or tok.startswith("--request="):
             method = (
                 take_value("--request=")
